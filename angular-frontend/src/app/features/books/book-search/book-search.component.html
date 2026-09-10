@@ -18,11 +18,11 @@
     </div>
 } @else {
 <ul>
-    @for (book of books; track book.isbn) {
+    @for (book of books; track book.id) {
         <li>
             <img
                 [src]="book.cover_url || '/book-placeholder.svg'"
-                [alt]="book.cover_url ? book.title : 'Book cover coming soon'"
+                [alt]="book.cover_url ? book.name : 'Book cover coming soon'"
                 (error)="onCoverError($event)"
             >
             <div>

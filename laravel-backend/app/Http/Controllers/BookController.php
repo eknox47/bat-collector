@@ -16,10 +16,6 @@ class BookController extends Controller
             'search' => ['required', 'string', 'max:255'],
         ]);
 
-        if (config('services.penguin_random_house.fake')) {
-            return $this->fakeSearchResults();
-        }
-
         $response = Http::get(
             'https://api.penguinrandomhouse.com/resources/v2/title/domains/'
                 . config('services.penguin_random_house.domain') . '/search',
@@ -29,28 +25,73 @@ class BookController extends Controller
             ]
         );
 
-        $titles = $response->json('data.titles');
+        $titles = $response->json('data.results');
 
         if (! $titles) {
             return [];
         }
 
         return collect($titles)
-            ->filter(fn ($item) => ($item['docType'] ?? null) === 'title')
             ->map(function ($item) {
-                $coverUrl = collect($item['links'] ?? [])->firstWhere('rel', 'icon')['href'] ?? null;
-
                 return [
-                    'isbn' => $item['isbn'] ?? null,
-                    'title' => $item['title'],
-                    'author' => $item['author'] ?? null,
-                    'publisher' => $item['publisher']['description'] ?? null,
-                    'published_date' => $item['onsale'] ?? null,
-                    'page_count' => $item['pages'] ?? null,
-                    'cover_url' => $coverUrl,
+                    'key' => $item['key'],
+                    'title' => $item['name'],
+                    'coverUrl' => $this->coverUrlForWork($item['key']),
                 ];
             })
             ->values();
+    }
+
+    private function coverUrlForWork(string $workId): ?string
+    {
+        $response = Http::get(
+            'https://api.penguinrandomhouse.com/resources/v2/title/domains/'
+                . config('services.penguin_random_house.domain') . "/works/{$workId}/titles",
+            ['api_key' => config('services.penguin_random_house.key')]
+        );
+
+        if ($response->failed()) {
+            return null;
+        }
+
+        $title = $response->json('data.titles.0');
+
+        return collect($title['_links'] ?? [])->firstWhere('rel', 'icon')['href'] ?? null;
+    }
+
+    public function details(string $workId)
+    {
+        $response = Http::get(
+            'https://api.penguinrandomhouse.com/resources/v2/title/domains/'
+                . config('services.penguin_random_house.domain') . "/works/{$workId}/titles",
+            ['api_key' => config('services.penguin_random_house.key')]
+        );
+
+        if ($response->failed()) {
+            return response()->json([
+                'message' => 'Unable to retrieve book variants from Penguin Random House.',
+            ], $response->status());
+        }
+
+        $details = $response->json()['data']['titles'][0];
+
+        $formattedBookDetails = [
+            'isbn' => $details['isbn'],
+            'title' => $details['title'],
+            'author' => $details['author'],
+            'onSaleDate' => $details['onsale'],
+            'priceUSD' => collect($details['price'] ?? [])->firstWhere('currencyCode', 'USD')['amount'] ?? null,
+            'priceCAD' => collect($details['price'] ?? [])->firstWhere('currencyCode', 'CAD')['amount'] ?? null,
+            'publisher' => $details['publisher']['description'],
+            'pages' => $details['pages'],
+            'trim' => $details['trim'],
+            'format' => $details['consumerFormat'],
+            'workId' => $details['workId'],
+            'focDate' => $details['focDate'],
+            'coverUrl' => $this->coverUrlForWork($details['workId'])
+        ];
+
+        return $formattedBookDetails;
     }
 
     public function store(Request $request)
@@ -95,101 +136,5 @@ class BookController extends Controller
     public function destroy(string $id)
     {
         //
-    }
-
-    private function fakeSearchResults(): array
-    {
-        return [
-            [
-                'isbn' => '9781401235420',
-                'title' => 'Batman: The Dark Knight Returns Omnibus',
-                'author' => 'Frank Miller',
-                'publisher' => 'DC Comics',
-                'published_date' => '2016-10-04',
-                'page_count' => 240,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401235420',
-            ],
-            [
-                'isbn' => '9781401272289',
-                'title' => 'Batman: Year One Omnibus',
-                'author' => 'Frank Miller',
-                'publisher' => 'DC Comics',
-                'published_date' => '2017-03-14',
-                'page_count' => 144,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401272289',
-            ],
-            [
-                'isbn' => '9781779512315',
-                'title' => 'Batman: Hush Omnibus',
-                'author' => 'Jeph Loeb',
-                'publisher' => 'DC Comics',
-                'published_date' => '2020-11-10',
-                'page_count' => 320,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781779512315',
-            ],
-            [
-                'isbn' => '9781401284138',
-                'title' => 'Batman: The Long Halloween Omnibus',
-                'author' => 'Jeph Loeb',
-                'publisher' => 'DC Comics',
-                'published_date' => '2018-10-02',
-                'page_count' => 384,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401284138',
-            ],
-            [
-                'isbn' => '9781401270957',
-                'title' => 'Batman: Knightfall Omnibus Vol. 1',
-                'author' => 'Chuck Dixon',
-                'publisher' => 'DC Comics',
-                'published_date' => '2017-05-16',
-                'page_count' => 608,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401270957',
-            ],
-            [
-                'isbn' => '9781401290573',
-                'title' => 'Batman: A Death in the Family Omnibus',
-                'author' => 'Jim Starlin',
-                'publisher' => 'DC Comics',
-                'published_date' => '2019-08-27',
-                'page_count' => 416,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401290573',
-            ],
-            [
-                'isbn' => '9781401281175',
-                'title' => 'Batman: No Man\'s Land Omnibus Vol. 1',
-                'author' => 'Bob Gale',
-                'publisher' => 'DC Comics',
-                'published_date' => '2018-04-24',
-                'page_count' => 608,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401281175',
-            ],
-            [
-                'isbn' => '9781401265019',
-                'title' => 'Batman by Scott Snyder & Greg Capullo Omnibus',
-                'author' => 'Scott Snyder',
-                'publisher' => 'DC Comics',
-                'published_date' => '2016-11-08',
-                'page_count' => 1040,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401265019',
-            ],
-            [
-                'isbn' => '9781401248277',
-                'title' => 'Batman: Court of Owls Omnibus',
-                'author' => 'Scott Snyder',
-                'publisher' => 'DC Comics',
-                'published_date' => '2015-06-16',
-                'page_count' => 368,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401248277',
-            ],
-            [
-                'isbn' => '9781401295158',
-                'title' => 'Batman: The Killing Joke Deluxe Omnibus',
-                'author' => 'Alan Moore',
-                'publisher' => 'DC Comics',
-                'published_date' => '2019-03-19',
-                'page_count' => 176,
-                'cover_url' => 'https://images.randomhouse.com/cover/9781401295158',
-            ],
-        ];
     }
 }
